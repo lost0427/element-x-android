@@ -17,7 +17,9 @@ import io.element.android.libraries.matrix.test.A_ROOM_ID
 import io.element.android.libraries.matrix.test.A_ROOM_ID_2
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -26,6 +28,80 @@ import org.matrix.rustcomponents.sdk.SearchServiceResultsUpdate
 import uniffi.matrix_sdk_ui.SearchServicePaginationState
 
 class RustMessageSearchTest {
+    @Test
+    fun `Chinese search scans past nonmatching pages and preserves diff indices`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val scope = CoroutineScope(dispatcher)
+        lateinit var service: FakeFfiSearchService
+        var sdkQuery: String? = null
+        var pages = 0
+        service = FakeFfiSearchService(
+            setQueryLambda = {
+                sdkQuery = it
+                service.resultsListener!!.onUpdate(
+                    listOf(SearchServiceResultsUpdate.Reset(listOf(aRustSearchServiceResult("\$1", body = "上午吃饭"))))
+                )
+            },
+            paginateLambda = {
+                pages++
+                if (pages == 1) {
+                    service.resultsListener!!.onUpdate(
+                        listOf(SearchServiceResultsUpdate.Append(listOf(
+                            aRustSearchServiceResult("\$2", body = "下午开会", roomId = A_ROOM_ID_2.value),
+                            aRustSearchServiceResult("\$3", body = "今天下午三点开会"),
+                        )))
+                    )
+                } else {
+                    service.emitPaginationState(SearchServicePaginationState.Idle(endReached = true))
+                }
+            },
+        )
+        val search = RustMessageSearch(inner = service, onClose = {}, scope = scope, dispatcher = dispatcher, roomId = A_ROOM_ID)
+
+        assertThat(search.setQuery("下午").isSuccess).isTrue()
+        advanceUntilIdle()
+        assertThat(sdkQuery).isEqualTo("*")
+        assertThat(pages).isEqualTo(2)
+        assertThat(search.results.value.map { it.eventId.value }).containsExactly("\$3")
+        assertThat(search.paginationState.value).isEqualTo(MessageSearchPaginationState.Idle(endReached = true))
+
+        service.resultsListener!!.onUpdate(listOf(
+            SearchServiceResultsUpdate.Set(index = 2u, value = aRustSearchServiceResult("\$3", body = "改到上午开会")),
+            SearchServiceResultsUpdate.Remove(index = 1u),
+        ))
+        advanceUntilIdle()
+        assertThat(search.results.value).isEmpty()
+        scope.cancel()
+    }
+
+    @Test
+    fun `Chinese pagination errors are returned and release the operation lock`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val scope = CoroutineScope(dispatcher)
+        val service = FakeFfiSearchService(paginateLambda = { error("Search unavailable") })
+        val search = RustMessageSearch(inner = service, onClose = {}, scope = scope, dispatcher = dispatcher)
+
+        assertThat(search.setQuery("中文").isFailure).isTrue()
+        assertThat(search.setQuery("hello").isSuccess).isTrue()
+        scope.cancel()
+    }
+
+    @Test
+    fun `changing the query can cancel a Chinese scan`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val scope = CoroutineScope(dispatcher)
+        val service = FakeFfiSearchService(paginateLambda = { awaitCancellation() })
+        val search = RustMessageSearch(inner = service, onClose = {}, scope = scope, dispatcher = dispatcher)
+        val scan = launch { search.setQuery("中文") }
+        testScheduler.runCurrent()
+        assertThat(search.paginationState.value).isEqualTo(MessageSearchPaginationState.Loading)
+
+        scan.cancel()
+        scan.join()
+        assertThat(search.setQuery("hello").isSuccess).isTrue()
+        scope.cancel()
+    }
+
     @Test
     fun `paginationState is seeded from the SDK and reflects later updates`() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)

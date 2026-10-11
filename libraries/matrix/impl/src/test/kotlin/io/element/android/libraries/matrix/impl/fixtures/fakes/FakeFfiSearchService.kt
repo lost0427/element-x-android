@@ -16,9 +16,10 @@ import uniffi.matrix_sdk_ui.SearchServicePaginationState
 
 class FakeFfiSearchService(
     private val initialPaginationState: SearchServicePaginationState = SearchServicePaginationState.Idle(endReached = false),
-    private val setQueryLambda: (String) -> Unit = {},
-    private val paginateLambda: () -> Unit = {},
+    private val setQueryLambda: suspend (String) -> Unit = {},
+    private val paginateLambda: suspend () -> Unit = {},
 ) : SearchService(NoHandle) {
+    private var currentPaginationState = initialPaginationState
     var resultsListener: SearchServiceResultsListener? = null
         private set
     var paginationStateListener: SearchServicePaginationStateListener? = null
@@ -28,7 +29,12 @@ class FakeFfiSearchService(
 
     override suspend fun paginate() = paginateLambda()
 
-    override fun paginationState(): SearchServicePaginationState = initialPaginationState
+    override fun paginationState(): SearchServicePaginationState = currentPaginationState
+
+    fun emitPaginationState(state: SearchServicePaginationState) {
+        currentPaginationState = state
+        paginationStateListener?.onUpdate(state)
+    }
 
     override suspend fun setQuery(query: String) = setQueryLambda(query)
 
