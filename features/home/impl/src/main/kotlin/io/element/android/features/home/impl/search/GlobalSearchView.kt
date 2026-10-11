@@ -178,6 +178,7 @@ private fun GlobalSearchContent(
                         startSearching()
                     }
                     state.results.isLoading() -> loadingResults()
+                    state.results.isFailure() -> failedSearchResults { state.eventSink(GlobalSearchEvent.RetrySearch) }
                     results?.isEmpty() == true -> emptySearchResults(query = state.queryState.text.toString())
                     results is GlobalSearchResults.RoomListResults -> roomListResults(
                         results = results.results,
@@ -415,6 +416,23 @@ private fun LazyListScope.searchHistory(
 private fun LazyListScope.loadingResults() {
     item {
         LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+    }
+}
+
+private fun LazyListScope.failedSearchResults(onRetry: () -> Unit) {
+    item {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Text(
+                text = stringResource(CommonStrings.error_message_search_failed),
+                style = ElementTheme.typography.fontBodyMdRegular,
+                color = ElementTheme.colors.textPrimary,
+            )
+            TextButton(text = stringResource(CommonStrings.action_retry), onClick = onRetry)
+        }
     }
 }
 

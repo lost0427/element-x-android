@@ -159,6 +159,12 @@ class GlobalSearchStatePreviewParam : PreviewParameterProvider<GlobalSearchState
                         )
                     )
                 ),
+                aGlobalSearchState(
+                    isSearchActive = true,
+                    currentTarget = GlobalSearchTarget.MESSAGES,
+                    queryState = TextFieldState("下午"),
+                    results = AsyncData.Failure(IllegalStateException("Search unavailable")),
+                ),
             )
         }
 }

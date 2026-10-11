@@ -13,12 +13,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import dev.zacsweers.metro.Inject
 import io.element.android.features.home.impl.search.history.SearchHistoryResult
 import io.element.android.features.home.impl.search.history.SearchHistoryStore
@@ -90,6 +92,8 @@ class GlobalSearchPresenter(
         var isSearchActive by remember { mutableStateOf(false) }
         var searchResults: AsyncData<GlobalSearchResults> by remember { mutableStateOf(AsyncData.Uninitialized) }
         var currentTarget: GlobalSearchTarget by remember { mutableStateOf(GlobalSearchTarget.ROOMS) }
+        var messageSearchFailure by remember { mutableStateOf<Throwable?>(null) }
+        var searchAttempt by remember { mutableIntStateOf(0) }
         val currentMessageSearch: MessageSearch = remember { messageSearchService.createMessageSearch(scope = coroutineScope) }
 
         StartSearchBackfillWhenVisible(isEnabled = isEnabled, isSearchActive = isSearchActive)
@@ -109,9 +113,10 @@ class GlobalSearchPresenter(
             }
         }
 
-        LaunchedEffect(queryState.text) {
+        LaunchedEffect(queryState.text, currentTarget, searchAttempt) {
             // Add a delay to avoid performing too many searches in a short period of time, which can be expensive
             delay(200.milliseconds)
+            messageSearchFailure = null
 
             searchResults = if (queryState.text.isNotEmpty()) {
                 AsyncData.Loading(prevData = searchResults.dataOrNull())
@@ -126,10 +131,14 @@ class GlobalSearchPresenter(
                     additionalFilters = RoomListFilter.Joined,
                 )
             }
-            // Apply the query to the message search too
+            // Only scan messages when that tab is selected. Switching tabs cancels the scan.
             launch {
-                currentMessageSearch.setQuery(queryState.text.toString())
-                    .onFailure { Timber.e(it, "Could not set query for message search") }
+                val messageQuery = if (currentTarget == GlobalSearchTarget.MESSAGES) queryState.text.toString() else ""
+                currentMessageSearch.setQuery(messageQuery)
+                    .onFailure {
+                        messageSearchFailure = it
+                        Timber.e("Could not set query for message search")
+                    }
             }
         }
 
@@ -156,9 +165,10 @@ class GlobalSearchPresenter(
                     combine(
                         currentMessageSearch.results,
                         currentMessageSearch.paginationState,
-                    ) { results, paginationState ->
-                        Pair(results, paginationState)
-                    }.collectLatest { (results, paginationState) ->
+                        snapshotFlow { messageSearchFailure },
+                    ) { results, paginationState, failure ->
+                        Triple(results, paginationState, failure)
+                    }.collectLatest { (results, paginationState, failure) ->
                         Timber.d("Message search found ${results.size} items, pagination state: $paginationState")
 
                         // Try processing the results in parallel to speed up the processing time, since we have to wait until we get the room info for each
@@ -184,6 +194,7 @@ class GlobalSearchPresenter(
 
                         searchResults = when {
                             queryState.text.isEmpty() -> AsyncData.Uninitialized
+                            failure != null -> AsyncData.Failure(failure)
                             mappedResults.isNotEmpty() -> {
                                 AsyncData.Success(GlobalSearchResults.MessageSearchResults(results = mappedResults.toImmutableList()))
                             }
@@ -204,6 +215,7 @@ class GlobalSearchPresenter(
 
         fun handleEvent(event: GlobalSearchEvent) {
             when (event) {
+                GlobalSearchEvent.RetrySearch -> searchAttempt++
                 GlobalSearchEvent.ClearQuery -> coroutineScope.launch {
                     searchResults = AsyncData.Uninitialized
                     queryState.clearText()

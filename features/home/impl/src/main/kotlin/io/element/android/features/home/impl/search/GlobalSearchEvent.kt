@@ -13,6 +13,8 @@ sealed interface GlobalSearchEvent {
     /** The user cleared the search query. */
     object ClearQuery : GlobalSearchEvent
 
+    data object RetrySearch : GlobalSearchEvent
+
     /** The search screen visibility changed (e.g. the user opened or closed the search screen). */
     object ToggleSearchVisibility : GlobalSearchEvent
 

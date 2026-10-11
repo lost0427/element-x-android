@@ -57,6 +57,45 @@ import org.junit.Test
 
 class GlobalSearchPresenterTest {
     @Test
+    fun `room searches do not start Chinese message scans and selecting messages starts the query`() = runTest {
+        val search = FakeMessageSearch()
+        val presenter = createGlobalSearchPresenter(messageSearchService = FakeMessageSearchService(search))
+        presenter.test {
+            val initial = awaitItem()
+            initial.queryState.edit { append("下午") }
+            testScheduler.advanceUntilIdle()
+            assertThat(search.lastQuery).isEmpty()
+
+            initial.eventSink(GlobalSearchEvent.UpdateTarget(GlobalSearchTarget.MESSAGES))
+            testScheduler.advanceUntilIdle()
+            assertThat(search.lastQuery).isEqualTo("下午")
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `message search errors are visible and retry reruns the same query`() = runTest {
+        var fail = true
+        val search = FakeMessageSearch(setQueryResult = {
+            if (fail && it.isNotEmpty()) Result.failure(IllegalStateException("Search unavailable")) else Result.success(Unit)
+        })
+        val presenter = createGlobalSearchPresenter(messageSearchService = FakeMessageSearchService(search))
+        presenter.test {
+            val initial = awaitItem()
+            initial.eventSink(GlobalSearchEvent.UpdateTarget(GlobalSearchTarget.MESSAGES))
+            initial.queryState.edit { append("下午") }
+            val failed = consumeItemsUntilPredicate { it.results is AsyncData.Failure }.last()
+            val calls = search.setQueryCallCount
+            fail = false
+            failed.eventSink(GlobalSearchEvent.RetrySearch)
+            testScheduler.advanceUntilIdle()
+            assertThat(search.setQueryCallCount).isEqualTo(calls + 1)
+            assertThat(search.lastQuery).isEqualTo("下午")
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
     fun `present - initial state`() = runTest {
         val presenter = createGlobalSearchPresenter()
         presenter.test {
