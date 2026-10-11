@@ -12,12 +12,20 @@ import androidx.compose.ui.tooling.preview.PreviewParameterProvider
 import io.element.android.libraries.matrix.api.user.MatrixUser
 import io.element.android.libraries.matrix.ui.components.aMatrixUserList
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toImmutableMap
 
 open class AccountSelectStatePreviewParam : PreviewParameterProvider<AccountSelectState> {
     override val values: Sequence<AccountSelectState>
         get() = sequenceOf(
             anAccountSelectState(),
             anAccountSelectState(accounts = aMatrixUserList()),
+            aMatrixUserList().let { accounts ->
+                AccountSelectState(
+                    accounts = accounts.toImmutableList(),
+                    currentAccount = accounts.first().userId,
+                    homeservers = accounts.associate { it.userId to "https://matrix.example.org" }.toImmutableMap(),
+                )
+            },
         )
 }
 

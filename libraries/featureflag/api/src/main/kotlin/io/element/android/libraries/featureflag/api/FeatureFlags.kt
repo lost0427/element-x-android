@@ -74,9 +74,8 @@ enum class FeatureFlags(
     MultiAccount(
         key = "feature.multi_account",
         title = "Multi accounts",
-        description = "Allow the application to connect to multiple accounts at the same time." +
-            "\n\nWARNING: this feature is EXPERIMENTAL and UNSTABLE.",
-        defaultValue = { false },
+        description = "Sign in to multiple accounts and manage each account's profile.",
+        defaultValue = { true },
         isFinished = false,
     ),
     QrCodeLogin(

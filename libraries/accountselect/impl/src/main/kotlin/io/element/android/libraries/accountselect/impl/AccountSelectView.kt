@@ -19,13 +19,19 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.PreviewParameter
 import androidx.compose.ui.unit.dp
+import io.element.android.compound.theme.ElementTheme
+import io.element.android.compound.tokens.generated.CompoundIcons
+import io.element.android.libraries.designsystem.components.avatar.AvatarSize
 import io.element.android.libraries.designsystem.components.button.BackButton
 import io.element.android.libraries.designsystem.preview.ElementPreview
 import io.element.android.libraries.designsystem.preview.PreviewsDayNight
 import io.element.android.libraries.designsystem.theme.components.HorizontalDivider
+import io.element.android.libraries.designsystem.theme.components.Icon
 import io.element.android.libraries.designsystem.theme.components.Scaffold
+import io.element.android.libraries.designsystem.theme.components.Text
 import io.element.android.libraries.designsystem.theme.components.TopAppBar
 import io.element.android.libraries.matrix.api.core.SessionId
 import io.element.android.libraries.matrix.ui.components.MatrixUserRow
@@ -58,16 +64,34 @@ fun AccountSelectView(
         ) {
             LazyColumn {
                 items(state.accounts, key = { it.userId }) { matrixUser ->
-                    Column {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().clickable { onSelectAccount(matrixUser.userId) },
+                    ) {
                         MatrixUserRow(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable {
-                                    onSelectAccount(matrixUser.userId)
-                                }
                                 .padding(vertical = 8.dp),
                             matrixUser = matrixUser,
+                            trailingContent = {
+                                if (matrixUser.userId == state.currentAccount) {
+                                    Icon(
+                                        imageVector = CompoundIcons.Check(),
+                                        contentDescription = stringResource(CommonStrings.screen_account_select_current_account),
+                                        tint = ElementTheme.colors.iconPrimary,
+                                    )
+                                }
+                            },
                         )
+                        state.homeservers[matrixUser.userId]?.let { homeserver ->
+                            Text(
+                                text = homeserver,
+                                style = ElementTheme.typography.fontBodySmRegular,
+                                color = ElementTheme.colors.textSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(start = 28.dp + AvatarSize.UserListItem.dp, end = 16.dp, bottom = 12.dp),
+                            )
+                        }
                         HorizontalDivider()
                     }
                 }

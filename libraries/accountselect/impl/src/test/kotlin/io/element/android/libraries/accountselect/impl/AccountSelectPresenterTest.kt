@@ -26,6 +26,43 @@ class AccountSelectPresenterTest {
     val warmUpRule = WarmUpRule()
 
     @Test
+    fun `profile edits update the selected account without changing another profile`() = runTest {
+        val alice = aSessionData(sessionId = A_SESSION_ID.value, userDisplayName = "Alice", position = 0)
+        val bob = aSessionData(sessionId = A_SESSION_ID_2.value, userDisplayName = "Bob", position = 1)
+        val store = InMemorySessionStore(initialList = listOf(alice, bob))
+        createAccountSelectPresenter(store).test {
+            skipItems(1)
+            val initial = awaitItem()
+            assertThat(initial.currentAccount).isEqualTo(A_SESSION_ID)
+            assertThat(initial.homeservers[A_SESSION_ID]).isEqualTo(alice.homeserverUrl)
+
+            store.updateData(bob.copy(userDisplayName = "Updated Bob", userAvatarUrl = "mxc://server/bob"))
+            val updated = awaitItem()
+            assertThat(updated.accounts[0]).isEqualTo(initial.accounts[0])
+            assertThat(updated.accounts[1].displayName).isEqualTo("Updated Bob")
+            assertThat(updated.accounts[1].avatarUrl).isEqualTo("mxc://server/bob")
+
+            store.removeSession(A_SESSION_ID_2.value)
+            assertThat(awaitItem().accounts).containsExactly(initial.accounts[0])
+            store.addSession(bob)
+            assertThat(awaitItem().accounts.map { it.userId }).containsExactly(A_SESSION_ID, A_SESSION_ID_2).inOrder()
+        }
+    }
+
+    @Test
+    fun `account rows stay in position order rather than last usage order`() = runTest {
+        val alice = aSessionData(sessionId = A_SESSION_ID.value, position = 0)
+        val bob = aSessionData(sessionId = A_SESSION_ID_2.value, position = 1)
+        val store = InMemorySessionStore(initialList = listOf(bob, alice))
+        createAccountSelectPresenter(store).test {
+            skipItems(1)
+            val state = awaitItem()
+            assertThat(state.currentAccount).isEqualTo(A_SESSION_ID_2)
+            assertThat(state.accounts.map { it.userId }).containsExactly(A_SESSION_ID, A_SESSION_ID_2).inOrder()
+        }
+    }
+
+    @Test
     fun `present - initial state`() = runTest {
         val presenter = createAccountSelectPresenter()
         presenter.test {

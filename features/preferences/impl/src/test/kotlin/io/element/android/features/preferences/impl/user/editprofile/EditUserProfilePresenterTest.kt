@@ -16,6 +16,7 @@ import io.element.android.libraries.matrix.api.MatrixClient
 import io.element.android.libraries.matrix.api.user.MatrixUser
 import io.element.android.libraries.matrix.test.AN_AVATAR_URL
 import io.element.android.libraries.matrix.test.A_USER_ID
+import io.element.android.libraries.matrix.test.A_USER_ID_2
 import io.element.android.libraries.matrix.test.FakeMatrixClient
 import io.element.android.libraries.matrix.ui.components.aMatrixUser
 import io.element.android.libraries.matrix.ui.media.AvatarAction
@@ -91,6 +92,69 @@ class EditUserProfilePresenterTest {
             permissionsPresenterFactory = FakePermissionsPresenterFactory(permissionsPresenter),
             mediaOptimizationConfigProvider = mediaOptimizationConfigProvider,
         )
+    }
+
+    @Test
+    fun `saving another account profile is rejected before any server mutation`() = runTest {
+        val client = FakeMatrixClient()
+        val presenter = createEditUserProfilePresenter(
+            matrixClient = client,
+            matrixUser = aMatrixUser(id = A_USER_ID_2.value, displayName = "Bob", avatarUrl = null),
+        )
+        presenter.test {
+            val initial = awaitItem()
+            initial.eventSink(EditUserProfileEvent.UpdateDisplayName("Changed Bob"))
+            val edited = consumeItemsUntilPredicate { it.displayName == "Changed Bob" }.last()
+            assertThat(edited.saveButtonEnabled).isFalse()
+            edited.eventSink(EditUserProfileEvent.Save)
+            consumeItemsUntilPredicate { it.saveAction is AsyncAction.Failure }
+            assertThat(client.setDisplayNameCalled).isFalse()
+            assertThat(client.uploadAvatarCalled).isFalse()
+            assertThat(client.removeAvatarCalled).isFalse()
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `saving refreshes the current account profile`() = runTest {
+        val updated = aMatrixUser(id = A_USER_ID.value, displayName = "Updated Alice", avatarUrl = null)
+        val client = FakeMatrixClient().apply { givenGetProfileResult(A_USER_ID, Result.success(updated)) }
+        val presenter = createEditUserProfilePresenter(
+            matrixClient = client,
+            matrixUser = aMatrixUser(id = A_USER_ID.value, displayName = "Alice", avatarUrl = null),
+        )
+        presenter.test {
+            val initial = awaitItem()
+            initial.eventSink(EditUserProfileEvent.UpdateDisplayName("Updated Alice"))
+            initial.eventSink(EditUserProfileEvent.Save)
+            consumeItemsUntilPredicate { it.saveAction is AsyncAction.Success }
+            assertThat(client.userProfile.value).isEqualTo(updated)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `partial saves refresh the profile even when another update fails`() = runTest {
+        val saved = aMatrixUser(id = A_USER_ID.value, displayName = "Alice", avatarUrl = null)
+        val client = FakeMatrixClient().apply {
+            givenSetDisplayNameResult(Result.failure(IllegalStateException("Update failed")))
+            givenGetProfileResult(A_USER_ID, Result.success(saved))
+        }
+        val presenter = createEditUserProfilePresenter(
+            matrixClient = client,
+            matrixUser = aMatrixUser(id = A_USER_ID.value, displayName = "Alice", avatarUrl = AN_AVATAR_URL),
+            temporaryUriDeleter = FakeTemporaryUriDeleter(deleteLambda = {}),
+        )
+        presenter.test {
+            val initial = awaitItem()
+            initial.eventSink(EditUserProfileEvent.UpdateDisplayName("Updated Alice"))
+            initial.eventSink(EditUserProfileEvent.HandleAvatarAction(AvatarAction.Remove))
+            initial.eventSink(EditUserProfileEvent.Save)
+            consumeItemsUntilPredicate { it.saveAction is AsyncAction.Failure }
+            assertThat(client.removeAvatarCalled).isTrue()
+            assertThat(client.userProfile.value).isEqualTo(saved)
+            cancelAndIgnoreRemainingEvents()
+        }
     }
 
     @Test

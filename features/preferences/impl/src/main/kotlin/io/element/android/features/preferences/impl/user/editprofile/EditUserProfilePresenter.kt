@@ -118,7 +118,7 @@ class EditUserProfilePresenter(
         val canSave = remember(userDisplayName, userAvatarUri) {
             val hasProfileChanged = hasDisplayNameChanged(userDisplayName, matrixUser) ||
                 hasAvatarUrlChanged(userAvatarUri, matrixUser)
-            !userDisplayName.isNullOrBlank() && hasProfileChanged
+            matrixUser.userId == matrixClient.sessionId && !userDisplayName.isNullOrBlank() && hasProfileChanged
         }
 
         fun handleEvent(event: EditUserProfileEvent) {
@@ -198,6 +198,7 @@ class EditUserProfilePresenter(
     ) = launch {
         val results = mutableListOf<Result<Unit>>()
         suspend {
+            check(currentUser.userId == matrixClient.sessionId) { "The profile belongs to another account" }
             if (!name.isNullOrEmpty() && name.trim() != currentUser.displayName.orEmpty().trim()) {
                 results.add(matrixClient.setDisplayName(name).onFailure {
                     Timber.e(it, "Failed to set user's display name")
@@ -207,6 +208,10 @@ class EditUserProfilePresenter(
                 results.add(updateAvatar(avatarUri).onFailure {
                     Timber.e(it, "Failed to update user's avatar")
                 })
+            }
+            if (results.isNotEmpty()) {
+                // Refresh even after a partial save so the account list shows what was saved.
+                matrixClient.getUserProfile().onFailure { Timber.w("Could not refresh the saved account profile") }
             }
             if (results.all { it.isSuccess }) Unit else results.first { it.isFailure }.getOrThrow()
         }.runCatchingUpdatingState(action)

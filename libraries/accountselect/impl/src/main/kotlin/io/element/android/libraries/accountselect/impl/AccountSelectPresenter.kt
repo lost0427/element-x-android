@@ -13,12 +13,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import dev.zacsweers.metro.Inject
 import io.element.android.libraries.architecture.Presenter
-import io.element.android.libraries.matrix.api.user.MatrixUser
+import io.element.android.libraries.matrix.api.core.SessionId
 import io.element.android.libraries.matrix.api.user.toMatrixUser
 import io.element.android.libraries.sessionstorage.api.SessionStore
-import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toImmutableMap
 
 @Inject
 class AccountSelectPresenter(
@@ -26,15 +26,18 @@ class AccountSelectPresenter(
 ) : Presenter<AccountSelectState> {
     @Composable
     override fun present(): AccountSelectState {
-        val accounts by produceState<ImmutableList<MatrixUser>>(persistentListOf()) {
-            // Do not use sessionStore.sessionsFlow() to not make it change when an account is selected.
-            value = sessionStore.getAllSessions()
-                .map { it.toMatrixUser() }
-                .toImmutableList()
+        val state by produceState(AccountSelectState(accounts = persistentListOf())) {
+            sessionStore.sessionsFlow().collect { sessions ->
+                // Keep rows in account order when last-usage ordering changes, while still observing
+                // profile edits, account additions and removals.
+                value = AccountSelectState(
+                    accounts = sessions.sortedBy { it.position }.map { it.toMatrixUser() }.toImmutableList(),
+                    currentAccount = sessions.firstOrNull()?.let { SessionId(it.userId) },
+                    homeservers = sessions.associate { SessionId(it.userId) to it.homeserverUrl }.toImmutableMap(),
+                )
+            }
         }
 
-        return AccountSelectState(
-            accounts = accounts,
-        )
+        return state
     }
 }
