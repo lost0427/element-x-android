@@ -41,6 +41,7 @@ plugins {
 
 android {
     namespace = "io.element.android.x"
+    val forkRelease = providers.gradleProperty("forkRelease").orNull == "true"
 
     defaultConfig {
         applicationId = BuildTimeConfig.APPLICATION_ID
@@ -82,6 +83,14 @@ android {
     }
 
     signingConfigs {
+        if (forkRelease) {
+            register("forkRelease") {
+                storeFile = file(requireNotNull(System.getenv("FORK_KEYSTORE_FILE")))
+                storePassword = requireNotNull(System.getenv("FORK_KEYSTORE_PASSWORD"))
+                keyAlias = requireNotNull(System.getenv("FORK_KEY_ALIAS"))
+                keyPassword = requireNotNull(System.getenv("FORK_KEY_PASSWORD"))
+            }
+        }
         getByName("debug") {
             keyAlias = "androiddebugkey"
             keyPassword = "android"
@@ -118,13 +127,20 @@ android {
         }
 
         getByName("release") {
-            resValue("string", "app_name", baseAppName)
+            resValue("string", "app_name", if (forkRelease) "$baseAppName Fork" else baseAppName)
             resValue(
                 "string",
                 "login_redirect_scheme",
-                oAuthRedirectSchemeBase,
+                if (forkRelease) "$oAuthRedirectSchemeBase.lost0427" else oAuthRedirectSchemeBase,
             )
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName(if (forkRelease) "forkRelease" else "debug")
+            if (forkRelease) {
+                applicationIdSuffix = ".lost0427"
+                defaultConfig.versionName = requireNotNull(System.getenv("FORK_VERSION_NAME")).removePrefix("v")
+                defaultConfig.versionCode = requireNotNull(System.getenv("FORK_VERSION_CODE")).toInt().also {
+                    require(it in 1..210_000_000) { "Fork version code must allow the ABI multiplier" }
+                }
+            }
 
             optimization {
                 enable = true
